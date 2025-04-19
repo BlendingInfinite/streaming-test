@@ -1,10 +1,9 @@
-// server.js - Node.js Server für PC-Audio-Streaming
+// server.js - Node.js Server für Audio Streaming (Render-Version)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const os = require('os');
-const { AudioRecorder } = require('node-audio-recorder');
 
 // Express-App und HTTP-Server erstellen
 const app = express();
@@ -14,30 +13,18 @@ const io = new Server(server);
 // Statische Dateien aus dem 'public' Verzeichnis bereitstellen
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Audio-Recorder Konfiguration
-const options = {
-  program: process.platform === 'win32' ? 'sox' : 'rec',  // sox für Windows, rec für Linux/macOS
-  silence: 0,
-  device: null, // Standard-Audio-Gerät
-  thresholdStart: 0.5,
-  thresholdStop: 0.5,
-  keepSilence: true,
-  audioType: 'wav'
-};
-
-// Audio-Recorder initialisieren
-let audioRecorder = new AudioRecorder(options);
-let isRecording = false;
+// Für Render: Dummy-Audio statt echter Aufnahme
 let activeConnections = 0;
+let intervalId = null;
 
 // Socket.IO Verbindungshandling
 io.on('connection', (socket) => {
   console.log('Neue Client-Verbindung:', socket.id);
   activeConnections++;
 
-  // Starte Audio-Aufnahme, wenn die erste Verbindung hergestellt wird
+  // Starte Audio-Simulation, wenn die erste Verbindung hergestellt wird
   if (activeConnections === 1) {
-    startRecording();
+    startAudioSimulation();
   }
 
   // Auf Verbindungsabbruch reagieren
@@ -45,45 +32,52 @@ io.on('connection', (socket) => {
     console.log('Client getrennt:', socket.id);
     activeConnections--;
 
-    // Beende Audio-Aufnahme, wenn keine Verbindungen mehr bestehen
-    if (activeConnections === 0) {
-      stopRecording();
+    // Beende Audio-Simulation, wenn keine Verbindungen mehr bestehen
+    if (activeConnections === 0 && intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+      console.log('Audio-Simulation gestoppt');
     }
   });
 });
 
-// Audio-Aufnahme starten
-function startRecording() {
-  if (isRecording) return;
+// Simuliere Audio-Daten für Render (da keine echte Audio-Aufnahme möglich ist)
+function startAudioSimulation() {
+  console.log('Starte Audio-Simulation für Render...');
   
-  console.log('Starte Audio-Aufnahme...');
-  isRecording = true;
-
-  // Event-Handler für Audio-Daten
-  audioRecorder.on('data', (data) => {
-    // Audio-Daten an alle verbundenen Clients senden
+  if (intervalId) return;
+  
+  // Sende alle 100ms Audio-Daten
+  intervalId = setInterval(() => {
+    // Erzeuge Testton (440 Hz Sinuswelle)
+    const audioData = generateSineWave(440, 0.1);
+    
+    // Sende an alle Clients
     io.emit('audioData', {
-      buffer: data,
+      buffer: audioData,
       timestamp: Date.now()
     });
-  });
-
-  // Fehlerbehandlung
-  audioRecorder.on('error', (error) => {
-    console.error('Fehler bei der Audio-Aufnahme:', error);
-  });
-
-  // Audio-Aufnahme starten
-  audioRecorder.start();
+  }, 100);
 }
 
-// Audio-Aufnahme beenden
-function stopRecording() {
-  if (!isRecording) return;
+// Generiert eine Sinuswelle als Beispielton
+function generateSineWave(frequency = 440, duration = 0.1) {
+  const sampleRate = 44100;
+  const numSamples = Math.floor(sampleRate * duration);
+  const buffer = new ArrayBuffer(numSamples * 2); // 16-bit
+  const view = new DataView(buffer);
   
-  console.log('Beende Audio-Aufnahme...');
-  audioRecorder.stop();
-  isRecording = false;
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const amplitude = 0.5; // Lautstärke (0-1)
+    const value = Math.sin(frequency * 2 * Math.PI * t) * amplitude;
+    
+    // Konvertieren zu 16-bit PCM
+    const sample = Math.floor(value * 32767);
+    view.setInt16(i * 2, sample, true); // true für little-endian
+  }
+  
+  return buffer;
 }
 
 // HTML für die Client-Seite
@@ -94,7 +88,7 @@ app.get('/', (req, res) => {
 // Server starten
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server läuft auf http://localhost:${PORT}`);
+  console.log(`Server läuft auf Port ${PORT}`);
   
   // Netzwerk-Schnittstellen anzeigen
   const networkInterfaces = os.networkInterfaces();
@@ -109,9 +103,11 @@ server.listen(PORT, () => {
   });
 });
 
-// Ordnungsgemäßes Beenden bei Ctrl+C
+// Ordnungsgemäßes Beenden
 process.on('SIGINT', () => {
-  stopRecording();
+  if (intervalId) {
+    clearInterval(intervalId);
+  }
   console.log('Server wird beendet...');
   process.exit(0);
 });
