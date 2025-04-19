@@ -1,4 +1,4 @@
-// server.js - Node.js Server für Audio Streaming (Render-Version)
+// server.js - Audio-Streaming-Server
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -10,77 +10,150 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Statische Dateien aus dem 'public' Verzeichnis bereitstellen
+// Statische Dateien aus dem public-Verzeichnis
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Für Render: Dummy-Audio statt echter Aufnahme
-let activeConnections = 0;
-let intervalId = null;
+// Aktive Verbindungen verwalten
+const senders = new Map(); // Audio-Sender
+const receivers = new Map(); // Audio-Empfänger
+const rooms = new Map(); // Raum-Zuordnungen
 
 // Socket.IO Verbindungshandling
 io.on('connection', (socket) => {
-  console.log('Neue Client-Verbindung:', socket.id);
-  activeConnections++;
+  console.log('Neue Verbindung:', socket.id);
 
-  // Starte Audio-Simulation, wenn die erste Verbindung hergestellt wird
-  if (activeConnections === 1) {
-    startAudioSimulation();
-  }
+  // Client meldet sich als Audio-Sender an
+  socket.on('register-sender', () => {
+    console.log('Sender registriert:', socket.id);
+    senders.set(socket.id, { socket, receivers: new Set() });
+    
+    // Erstelle einen Raumcode für den Sender
+    const roomCode = generateRoomCode();
+    rooms.set(roomCode, socket.id);
+    
+    // Sende Raumcode zurück an den Sender
+    socket.emit('sender-ready', {
+      roomCode: roomCode,
+      serverUrl: getServerUrl(),
+      senderId: socket.id
+    });
+  });
 
-  // Auf Verbindungsabbruch reagieren
+  // Client meldet sich als Audio-Empfänger an
+  socket.on('join-room', (data) => {
+    const { roomCode } = data;
+    const senderId = rooms.get(roomCode);
+    
+    if (senderId && senders.has(senderId)) {
+      console.log(`Empfänger ${socket.id} verbindet sich mit Sender ${senderId}`);
+      
+      // Registriere den Empfänger
+      receivers.set(socket.id, { socket, senderId });
+      
+      // Füge den Empfänger zum Sender hinzu
+      senders.get(senderId).receivers.add(socket.id);
+      
+      // Benachrichtige den Sender über den neuen Empfänger
+      senders.get(senderId).socket.emit('receiver-joined', { receiverId: socket.id });
+      
+      // Benachrichtige den Empfänger über erfolgreiche Verbindung
+      socket.emit('join-success', { senderId });
+    } else {
+      socket.emit('join-error', { error: 'Ungültiger Raumcode' });
+    }
+  });
+
+  // Audio-Daten vom Sender zu allen Empfängern weiterleiten
+  socket.on('audio-data', (data) => {
+    if (senders.has(socket.id)) {
+      const sender = senders.get(socket.id);
+      
+      // An alle verbundenen Empfänger senden
+      sender.receivers.forEach(receiverId => {
+        if (receivers.has(receiverId)) {
+          receivers.get(receiverId).socket.emit('audio-data', data);
+        }
+      });
+    }
+  });
+
+  // Verbindungstrennung behandeln
   socket.on('disconnect', () => {
-    console.log('Client getrennt:', socket.id);
-    activeConnections--;
-
-    // Beende Audio-Simulation, wenn keine Verbindungen mehr bestehen
-    if (activeConnections === 0 && intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
-      console.log('Audio-Simulation gestoppt');
+    console.log('Verbindung getrennt:', socket.id);
+    
+    // Falls ein Sender getrennt wurde
+    if (senders.has(socket.id)) {
+      const sender = senders.get(socket.id);
+      
+      // Alle Raumcodes dieses Senders entfernen
+      for (const [code, id] of rooms.entries()) {
+        if (id === socket.id) {
+          rooms.delete(code);
+        }
+      }
+      
+      // Alle Empfänger benachrichtigen
+      sender.receivers.forEach(receiverId => {
+        if (receivers.has(receiverId)) {
+          receivers.get(receiverId).socket.emit('sender-disconnected');
+        }
+      });
+      
+      senders.delete(socket.id);
+    }
+    
+    // Falls ein Empfänger getrennt wurde
+    if (receivers.has(socket.id)) {
+      const receiver = receivers.get(socket.id);
+      
+      // Sender benachrichtigen, wenn vorhanden
+      if (senders.has(receiver.senderId)) {
+        senders.get(receiver.senderId).receivers.delete(socket.id);
+        senders.get(receiver.senderId).socket.emit('receiver-disconnected', { receiverId: socket.id });
+      }
+      
+      receivers.delete(socket.id);
     }
   });
 });
 
-// Simuliere Audio-Daten für Render (da keine echte Audio-Aufnahme möglich ist)
-function startAudioSimulation() {
-  console.log('Starte Audio-Simulation für Render...');
+// Hilfsfunktion für zufälligen 6-stelligen Raum-Code
+function generateRoomCode() {
+  let code;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Keine leicht zu verwechselnden Zeichen (0,O,1,I)
   
-  if (intervalId) return;
+  // Stelle sicher, dass der Code einzigartig ist
+  do {
+    code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+  } while (rooms.has(code));
   
-  // Sende alle 100ms Audio-Daten
-  intervalId = setInterval(() => {
-    // Erzeuge Testton (440 Hz Sinuswelle)
-    const audioData = generateSineWave(440, 0.1);
-    
-    // Sende an alle Clients
-    io.emit('audioData', {
-      buffer: audioData,
-      timestamp: Date.now()
-    });
-  }, 100);
+  return code;
 }
 
-// Generiert eine Sinuswelle als Beispielton
-function generateSineWave(frequency = 440, duration = 0.1) {
-  const sampleRate = 44100;
-  const numSamples = Math.floor(sampleRate * duration);
-  const buffer = new ArrayBuffer(numSamples * 2); // 16-bit
-  const view = new DataView(buffer);
+// Server-URL ermitteln
+function getServerUrl() {
+  const PORT = process.env.PORT || 3000;
   
-  for (let i = 0; i < numSamples; i++) {
-    const t = i / sampleRate;
-    const amplitude = 0.5; // Lautstärke (0-1)
-    const value = Math.sin(frequency * 2 * Math.PI * t) * amplitude;
-    
-    // Konvertieren zu 16-bit PCM
-    const sample = Math.floor(value * 32767);
-    view.setInt16(i * 2, sample, true); // true für little-endian
+  // Bei Render oder ähnlichen Cloud-Diensten die Umgebungsvariable verwenden
+  if (process.env.RENDER_EXTERNAL_URL) {
+    return process.env.RENDER_EXTERNAL_URL;
   }
   
-  return buffer;
+  // Lokale IP-Adresse finden
+  const networkInterfaces = os.networkInterfaces();
+  for (const iface of Object.values(networkInterfaces).flat()) {
+    if (iface.family === 'IPv4' && !iface.internal) {
+      return `http://${iface.address}:${PORT}`;
+    }
+  }
+  
+  return `http://localhost:${PORT}`;
 }
 
-// HTML für die Client-Seite
+// Hauptroute
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -95,19 +168,11 @@ server.listen(PORT, () => {
   console.log('\nZugriff im lokalen Netzwerk über:');
   
   Object.keys(networkInterfaces).forEach((ifname) => {
-    networkInterfaces[ifname].forEach((iface) => {
+    const interfaces = networkInterfaces[ifname];
+    interfaces.forEach((iface) => {
       if (iface.family === 'IPv4' && !iface.internal) {
         console.log(`http://${iface.address}:${PORT}`);
       }
     });
   });
-});
-
-// Ordnungsgemäßes Beenden
-process.on('SIGINT', () => {
-  if (intervalId) {
-    clearInterval(intervalId);
-  }
-  console.log('Server wird beendet...');
-  process.exit(0);
 });
