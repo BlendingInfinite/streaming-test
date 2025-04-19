@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PC Audio Streaming</title>
+    <title>System Audio Streaming</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,19 +12,19 @@
             padding: 20px;
             background-color: #f5f5f5;
         }
-        h1 {
+        h1, h2 {
             text-align: center;
             color: #2c3e50;
-            margin-bottom: 30px;
         }
         .container {
             background-color: white;
             border-radius: 8px;
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
         .status-box {
-            margin: 20px 0;
+            margin: 15px 0;
             padding: 15px;
             border-radius: 4px;
             background-color: #f0f0f0;
@@ -36,7 +36,10 @@
         .disconnected {
             background-color: #fadbd8;
         }
-        #status {
+        .streaming {
+            background-color: #d1f1ff;
+        }
+        #status, #receiverStatus {
             font-weight: bold;
         }
         button {
@@ -61,9 +64,17 @@
             margin: 20px 0;
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
+        }
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
         }
         .volume-control {
-            margin: 30px 0;
+            margin: 20px 0;
         }
         .volume-label {
             display: flex;
@@ -96,300 +107,309 @@
             border: none;
         }
         .info {
-            margin-top: 30px;
+            margin-top: 20px;
             padding: 15px;
             background-color: #eaf2f8;
             border-radius: 4px;
             font-size: 14px;
         }
-        .loading {
+        .room-code {
+            font-size: 28px;
+            font-weight: bold;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px auto;
             text-align: center;
+            letter-spacing: 5px;
+            max-width: 200px;
+        }
+        .room-link {
+            margin: 15px 0;
+            word-break: break-all;
+            font-family: monospace;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .hidden {
             display: none;
         }
-        .spinner {
-            border: 4px solid rgba(0, 0, 0, 0.1);
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            border-left-color: #3498db;
-            animation: spin 1s linear infinite;
-            margin: 10px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .latency-info {
+        .role-selection {
             text-align: center;
-            margin-top: 10px;
-            font-size: 14px;
-            color: #7f8c8d;
         }
-
-        /* Für mobile Anzeige optimieren */
-        @media (max-width: 600px) {
-            body {
-                padding: 10px;
-            }
-            .container {
-                padding: 15px;
-            }
-            h1 {
-                font-size: 24px;
-            }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+        .tab.active {
+            background-color: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .audio-visualizer {
+            height: 60px;
+            background-color: #f0f0f0;
+            margin: 15px 0;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+        .visualizer-bars {
+            display: flex;
+            height: 100%;
+            align-items: flex-end;
+            padding: 0 5px;
+        }
+        .bar {
+            flex: 1;
+            background-color: #3498db;
+            margin: 0 1px;
+            min-height: 2px;
+            max-height: 100%;
+            transition: height 0.05s ease;
+        }
+        .qr-code {
+            margin: 20px auto;
+            text-align: center;
+        }
+        #qrCanvas {
+            margin: 0 auto;
+            border: 10px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
     </style>
 </head>
 <body>
-    <h1>PC Audio Streaming</h1>
+    <h1>System Audio Streaming</h1>
     
-    <div class="container">
-        <div class="status-box" id="statusBox">
-            <p>Status: <span id="status">Nicht verbunden</span></p>
-        </div>
-        
-        <div class="controls">
-            <button id="connectBtn">Verbinden</button>
-            <button id="disconnectBtn" disabled>Trennen</button>
-        </div>
-        
-        <div class="loading" id="loadingIndicator">
-            <div class="spinner"></div>
-            <p>Verbinde zum Server...</p>
-        </div>
-        
-        <div class="volume-control" id="volumeControl" style="display: none;">
-            <div class="volume-label">
-                <span>Lautstärke:</span>
-                <span id="volumeValue">100%</span>
+    <div class="tabs" id="roleTabs">
+        <div class="tab active" data-tab="sender">Audio senden</div>
+        <div class="tab" data-tab="receiver">Audio empfangen</div>
+    </div>
+    
+    <!-- Sender Tab -->
+    <div class="tab-content active" id="senderTab">
+        <div class="container">
+            <h2>Audio vom PC streamen</h2>
+            <div class="status-box" id="statusBox">
+                <p>Status: <span id="status">Nicht gestartet</span></p>
             </div>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+            
+            <div class="controls">
+                <button id="startBtn">Stream starten</button>
+                <button id="stopBtn" disabled>Stream stoppen</button>
+            </div>
+            
+            <div id="roomInfo" class="hidden">
+                <p>Teilen Sie diesen Code mit dem Empfänger:</p>
+                <div class="room-code" id="roomCode"></div>
+                
+                <div id="qrCodeContainer" class="qr-code">
+                    <canvas id="qrCanvas"></canvas>
+                </div>
+                
+                <p>Oder teilen Sie diesen Link:</p>
+                <div class="room-link" id="roomLink"></div>
+                <div class="controls">
+                    <button id="copyBtn">Link kopieren</button>
+                </div>
+            </div>
+            
+            <div class="audio-visualizer hidden" id="audioVisualizer">
+                <div class="visualizer-bars" id="visualizerBars"></div>
+            </div>
+            
+            <div class="info">
+                <h3>Anleitung:</h3>
+                <ol>
+                    <li>Klicken Sie auf "Stream starten"</li>
+                    <li>Erlauben Sie den Zugriff auf Ihr System-Audio (wählen Sie "Tab teilen" und aktivieren Sie "Audio teilen")</li>
+                    <li>Teilen Sie den generierten Code oder Link mit dem Empfänger</li>
+                    <li>Der Empfänger kann dann Ihr System-Audio hören</li>
+                </ol>
+            </div>
         </div>
-        
-        <div class="latency-info" id="latencyInfo" style="display: none;">
-            Latenz: <span id="latencyValue">-</span> ms
-        </div>
-        
-        <div class="info">
-            <h3>Hinweise:</h3>
-            <ul>
-                <li>Diese Demo erzeugt einen Testton (440 Hz).</li>
-                <li>In der lokalen Version streamt sie den PC-Audio.</li>
-                <li>Diese Anwendung funktioniert am besten in Chrome und Firefox.</li>
-                <li>Für bessere Audioqualität verwenden Sie Kopfhörer.</li>
-            </ul>
+    </div>
+    
+    <!-- Receiver Tab -->
+    <div class="tab-content" id="receiverTab">
+        <div class="container">
+            <h2>Audio empfangen</h2>
+            <div class="status-box" id="receiverStatusBox">
+                <p>Status: <span id="receiverStatus">Nicht verbunden</span></p>
+            </div>
+            
+            <div id="joinRoom">
+                <p>Geben Sie den Raum-Code ein, um zu verbinden:</p>
+                <div class="controls">
+                    <input type="text" id="roomCodeInput" placeholder="z.B. XYZ123" maxlength="6">
+                    <button id="joinBtn">Verbinden</button>
+                </div>
+            </div>
+            
+            <div class="volume-control hidden" id="volumeControl">
+                <div class="volume-label">
+                    <span>Lautstärke:</span>
+                    <span id="volumeValue">100%</span>
+                </div>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+            </div>
+            
+            <div class="info">
+                <h3>Anleitung:</h3>
+                <ol>
+                    <li>Geben Sie den Code ein, den Sie vom Sender erhalten haben</li>
+                    <li>Klicken Sie auf "Verbinden"</li>
+                    <li>Nach erfolgreicher Verbindung sollten Sie das Audio hören</li>
+                    <li>Passen Sie die Lautstärke nach Bedarf an</li>
+                </ol>
+            </div>
         </div>
     </div>
     
     <!-- Audio-Element für die Wiedergabe -->
     <audio id="audioElement" autoplay></audio>
     
+    <!-- QR Code Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
     <!-- Socket.IO Client-Bibliothek -->
     <script src="/socket.io/socket.io.js"></script>
     
     <script>
-        // DOM-Elemente
-        const connectBtn = document.getElementById('connectBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const statusElement = document.getElementById('status');
+        // DOM-Elemente - Tabs
+        const roleTabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // DOM-Elemente - Sender
         const statusBox = document.getElementById('statusBox');
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const roomInfo = document.getElementById('roomInfo');
+        const roomCode = document.getElementById('roomCode');
+        const roomLink = document.getElementById('roomLink');
+        const copyBtn = document.getElementById('copyBtn');
+        const audioVisualizer = document.getElementById('audioVisualizer');
+        const visualizerBars = document.getElementById('visualizerBars');
+        const qrCodeContainer = document.getElementById('qrCodeContainer');
+        const qrCanvas = document.getElementById('qrCanvas');
+        
+        // DOM-Elemente - Empfänger
+        const receiverStatusBox = document.getElementById('receiverStatusBox');
+        const receiverStatus = document.getElementById('receiverStatus');
+        const joinRoom = document.getElementById('joinRoom');
+        const roomCodeInput = document.getElementById('roomCodeInput');
+        const joinBtn = document.getElementById('joinBtn');
         const volumeControl = document.getElementById('volumeControl');
         const volumeSlider = document.getElementById('volumeSlider');
         const volumeValue = document.getElementById('volumeValue');
         const audioElement = document.getElementById('audioElement');
-        const loadingIndicator = document.getElementById('loadingIndicator');
-        const latencyInfo = document.getElementById('latencyInfo');
-        const latencyValue = document.getElementById('latencyValue');
+        
+        // Tab-Wechsel
+        roleTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                roleTabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}Tab`).classList.add('active');
+            });
+        });
+        
+        // Socket.IO-Verbindung
+        const socket = io();
         
         // Globale Variablen
-        let socket = null;
+        let mediaStream = null;
         let audioContext = null;
-        let mediaSource = null;
-        let audioQueue = [];
-        let isPlaying = false;
-        let lastTimestamp = 0;
-        let latencyMeasurements = [];
+        let mediaRecorder = null;
+        let analyser = null;
+        let isStreaming = false;
+        let visualizerAnimationFrame = null;
+        let qrCode = null;
         
-        // Audio-Kontext erstellen
-        function createAudioContext() {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Auf iOS/Safari das Audio-Element mit dem Audio-Kontext verbinden
-            if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                const source = audioContext.createMediaElementSource(audioElement);
-                source.connect(audioContext.destination);
+        // Für Audio-Visualisierung
+        const BAR_COUNT = 32;
+        
+        // Initialisiere Audio-Visualizer
+        function initVisualizer() {
+            visualizerBars.innerHTML = '';
+            for (let i = 0; i < BAR_COUNT; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                visualizerBars.appendChild(bar);
             }
         }
         
-        // Mit dem Server verbinden
-        connectBtn.addEventListener('click', () => {
-            statusElement.textContent = 'Verbinde...';
-            loadingIndicator.style.display = 'block';
-            connectBtn.disabled = true;
+        // Erstelle Audio-Visualisierung
+        function updateVisualizer() {
+            if (!analyser || !isStreaming) return;
             
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            
+            const bars = visualizerBars.children;
+            const step = Math.floor(dataArray.length / BAR_COUNT);
+            
+            for (let i = 0; i < BAR_COUNT; i++) {
+                const value = dataArray[i * step] / 255;
+                const height = value * 100;
+                bars[i].style.height = `${height}%`;
+            }
+            
+            visualizerAnimationFrame = requestAnimationFrame(updateVisualizer);
+        }
+        
+        // Sender-Funktionalität
+        startBtn.addEventListener('click', async () => {
             try {
-                // Audio-Kontext erstellen
-                if (!audioContext) {
-                    createAudioContext();
-                } else if (audioContext.state === 'suspended') {
-                    audioContext.resume();
+                status.textContent = 'Starte Stream...';
+                
+                // Versuche zuerst System-Audio zu erfassen
+                try {
+                    mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                        audio: true,
+                        video: true // Video wird benötigt, aber wir verwerfen es später
+                    });
+                    
+                    // Prüfe, ob Audio-Track vorhanden ist
+                    if (mediaStream.getAudioTracks().length === 0) {
+                        throw new Error('Kein Audio-Track gefunden');
+                    }
+                    
+                    // Video-Tracks entfernen, da wir nur Audio benötigen
+                    mediaStream.getVideoTracks().forEach(track => track.stop());
+                    
+                    status.textContent = 'System-Audio erfasst';
+                } catch (err) {
+                    // Fallback auf Mikrofon, wenn System-Audio nicht verfügbar
+                    console.warn('System-Audio konnte nicht erfasst werden, verwende Mikrofon:', err);
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: false
+                    });
+                    status.textContent = 'Mikrofon erfasst (kein System-Audio verfügbar)';
                 }
                 
-                // Mit Socket.IO verbinden
-                socket = io();
-                
-                // Verbindung hergestellt
-                socket.on('connect', () => {
-                    statusElement.textContent = 'Verbunden - Warte auf Audio';
-                    statusBox.className = 'status-box connected';
-                    disconnectBtn.disabled = false;
-                    volumeControl.style.display = 'block';
-                    latencyInfo.style.display = 'block';
-                    loadingIndicator.style.display = 'none';
-                });
-                
-                // Audio-Daten empfangen
-                socket.on('audioData', handleAudioData);
-                
-                // Verbindungsfehler
-                socket.on('connect_error', (error) => {
-                    console.error('Verbindungsfehler:', error);
-                    statusElement.textContent = 'Verbindungsfehler: Server nicht erreichbar';
-                    statusBox.className = 'status-box disconnected';
-                    loadingIndicator.style.display = 'none';
-                    connectBtn.disabled = false;
-                });
-                
-                // Verbindung getrennt
-                socket.on('disconnect', () => {
-                    disconnect();
-                });
-                
-            } catch (error) {
-                console.error('Fehler beim Verbinden:', error);
-                statusElement.textContent = 'Fehler: ' + error.message;
-                statusBox.className = 'status-box disconnected';
-                loadingIndicator.style.display = 'none';
-                connectBtn.disabled = false;
-            }
-        });
-        
-        // Verbindung trennen
-        disconnectBtn.addEventListener('click', disconnect);
-        
-        // Verbindung beenden
-        function disconnect() {
-            if (socket) {
-                socket.disconnect();
-                socket = null;
-            }
-            
-            if (audioContext && audioContext.state !== 'closed') {
-                audioContext.suspend();
-            }
-            
-            audioQueue = [];
-            isPlaying = false;
-            
-            statusElement.textContent = 'Getrennt';
-            statusBox.className = 'status-box disconnected';
-            connectBtn.disabled = false;
-            disconnectBtn.disabled = true;
-            volumeControl.style.display = 'none';
-            latencyInfo.style.display = 'none';
-        }
-        
-        // Audio-Daten verarbeiten
-        function handleAudioData(data) {
-            if (!audioContext) return;
-            
-            // Latenz berechnen
-            const now = Date.now();
-            const latency = now - data.timestamp;
-            updateLatency(latency);
-            
-            // Audio-Daten in Array-Buffer konvertieren
-            const arrayBuffer = new Uint8Array(data.buffer).buffer;
-            
-            // Audio decodieren
-            audioContext.decodeAudioData(arrayBuffer)
-                .then(audioBuffer => {
-                    if (socket && socket.connected) {
-                        playAudio(audioBuffer);
-                        statusElement.textContent = 'Verbunden - Audio wird abgespielt';
-                    }
-                })
-                .catch(error => {
-                    console.error('Fehler beim Decodieren der Audio-Daten:', error);
-                });
-        }
-        
-        // Audio abspielen
-        function playAudio(audioBuffer) {
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            
-            // Lautstärkeregler
-            const gainNode = audioContext.createGain();
-            gainNode.gain.value = volumeSlider.value;
-            
-            // Verbindungen herstellen
-            source.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            // Abspielen
-            source.start(0);
-            isPlaying = true;
-        }
-        
-        // Lautstärke einstellen
-        volumeSlider.addEventListener('input', () => {
-            const volume = volumeSlider.value;
-            volumeValue.textContent = Math.round(volume * 100) + '%';
-            
-            // Wenn ein Audio-Element verwendet wird
-            audioElement.volume = volume;
-        });
-        
-        // Latenz aktualisieren
-        function updateLatency(latency) {
-            // Gleitender Durchschnitt für stabilere Anzeige
-            latencyMeasurements.push(latency);
-            if (latencyMeasurements.length > 10) {
-                latencyMeasurements.shift();
-            }
-            
-            const avgLatency = Math.round(
-                latencyMeasurements.reduce((sum, value) => sum + value, 0) / latencyMeasurements.length
-            );
-            
-            latencyValue.textContent = avgLatency;
-            
-            // Farbliche Markierung je nach Latenz
-            if (avgLatency < 100) {
-                latencyValue.style.color = 'green';
-            } else if (avgLatency < 300) {
-                latencyValue.style.color = 'orange';
-            } else {
-                latencyValue.style.color = 'red';
-            }
-        }
-        
-        // Seite geladen
-        window.addEventListener('load', () => {
-            // Prüfen, ob Audio-API unterstützt wird
-            if (!window.AudioContext && !window.webkitAudioContext) {
-                statusElement.textContent = 'Fehler: Audio API wird nicht unterstützt';
-                statusBox.className = 'status-box disconnected';
-                connectBtn.disabled = true;
-                
-                // Warnung anzeigen
-                const warning = document.createElement('p');
-                warning.textContent = 'Ihr Browser unterstützt die benötigten Audio-Funktionen nicht. Bitte verwenden Sie Chrome oder Firefox.';
-                warning.style.color = 'red';
-                statusBox.appendChild(warning);
-            }
-        });
-    </script>
-</body>
-</html>
+                // Audio-Kontext und Analyser für Visualisierung erstellen
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connec
