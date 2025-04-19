@@ -1,7 +1,7 @@
 {
-  "name": "pc-audio-streaming",
+  "name": "system-audio-streaming",
   "version": "1.0.0",
-  "description": "Streame PC-Audio zu Android-Geräten über das Web",
+  "description": "Streame System-Audio über den Browser",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,7 @@
   "keywords": [
     "audio",
     "streaming",
-    "nodejs",
+    "browser",
     "websockets"
   ],
   "author": "",
